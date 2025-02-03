@@ -1,0 +1,13 @@
+Objectives:
+
+Rohan:
+Optimize model to solve for an entire day
+
+Max:
+Model 2: Integrate baggage claim
+Model 3: Integrate connecting passengers to identify how many passengers are actually arriving vs using Dallas as a connector
+Evaluation Method: scores each model in the total walking distance
+- Get objective value from 2016 actual assignments
+
+Max or Rohan
+Sensitivity Analysis: enforce gate vacancies, fewer waiting times and impacts
