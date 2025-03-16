@@ -7,8 +7,10 @@ function assign_gates(start_flight, end_flight, flights_per_save = 30, lookahead
     walking_distances = CSV.read("Data/Walking Distances Arriving and Departing Pax.csv", DataFrame)
     walking_distances_gate_to_gate = CSV.read("Data/Walking Distances Gate-to-Gate.csv", DataFrame)
     connections_matrix = CSV.read("Data/connections_matrix.csv", DataFrame)
+
+    sort!(df, :ArrivalTimeMinutes)
     
-    function assign_gates_single(start_flight, end_flight, departing = true, arriving = true, connecting = true, buffer_time = 0)
+    function assign_gates_single(start_flight, end_flight, departing = true, arriving = true, connecting = true, existing_assig = Dict(), buffer_time = 0)
         """
         This function assigns flights to gates based on the input parameters.
         
@@ -27,8 +29,10 @@ function assign_gates(start_flight, end_flight, flights_per_save = 30, lookahead
         # Load Data and Setup Parameters
         # -------------------------------
         num_flights = end_flight - start_flight + 1
+        num_flights_conflict = end_flight
         
         df_small = df[start_flight:end_flight, :]
+        df_conflict = df[1:start_flight-1, :]
         connections_matrix_small = connections_matrix[start_flight:end_flight, start_flight:end_flight]
 
         T_f1_f2 = zeros(num_flights,num_flights)
@@ -37,6 +41,8 @@ function assign_gates(start_flight, end_flight, flights_per_save = 30, lookahead
         # Separate arriving and departing flights
         departing_indices = findall(df_small.IsDeparting .== "Y")
         arriving_indices  = findall(df_small.IsDeparting .== "N")
+        println("arriving indices, ", arriving_indices)
+        arriving_indices_prev  = findall(df_conflict.IsDeparting .== "N")
         F_dep = length(departing_indices)   # Number of departing flights
         F_arr = length(arriving_indices)    # Number of arriving flights
         F     = num_flights                 # Total flights
@@ -45,6 +51,9 @@ function assign_gates(start_flight, end_flight, flights_per_save = 30, lookahead
         # Define enter and exit gate times
         df_small[!, :EnterGateTime] = df_small.ArrivalTimeMinutes
         df_small[!, :ExitGateTime]  = df_small.OffTimeMinutes
+
+        df_conflict[!, :EnterGateTime] = df_conflict.ArrivalTimeMinutes
+        df_conflict[!, :ExitGateTime]  = df_conflict.OffTimeMinutes
     
         # Passenger counts
         P_df = [df_small.PassengersDept[departing_indices[f]] for f in 1:F_dep]  # Departing pax
@@ -125,6 +134,31 @@ function assign_gates(start_flight, end_flight, flights_per_save = 30, lookahead
                 @constraint(model, M[f1, g] + M[f2, g] <= 1)
             end
         end
+
+        conflict_pairs_prev = Vector{Tuple{Int, Int}}()
+        for f1 in 1:(start_flight-1)
+            for f2 in 1:F
+                if df_conflict.TailNumber[f1] != df_small.TailNumber[f2]
+                    enter1  = df_conflict.EnterGateTime[f1]
+                    depart1 = df_conflict.ExitGateTime[f1] + BUFFER_TIME
+                    enter2  = df_small.EnterGateTime[f2]
+                    depart2 = df_small.ExitGateTime[f2] + BUFFER_TIME
+                    if (enter1 < depart2) && (enter2 < depart1)
+                        push!(conflict_pairs_prev, (f1, f2))
+                    end
+                end
+            end
+        end
+    
+        # No two conflicting flights may share the same gate
+        for (f1, f2) in conflict_pairs_prev
+            g = get(existing_assig, f1, missing)
+            if f2 == 72 && g == 95
+                println("f1, f2, g, ", f1, f2, g)
+                println("tail number, ", df_conflict.TailNumber[f1])
+            end
+            @constraint(model, M[f2, g] == 0)
+        end
         # -------------------------------
         # Precompute Same‐Gate Pairs
         # -------------------------------
@@ -144,11 +178,53 @@ function assign_gates(start_flight, end_flight, flights_per_save = 30, lookahead
                 @constraint(model, M[f1, g] == M[f2, g])
             end
         end
+
+        same_gate_pairs_conflict = Vector{Tuple{Int, Int}}()
+        for f1 in arriving_indices_prev
+            for f2 in departing_indices
+                if df_conflict.TailNumber[f1] == df_small.TailNumber[f2] &&
+                (df_conflict.ExitGateTime[f1] + 120 >= df_small.EnterGateTime[f2])
+                    push!(same_gate_pairs_conflict, (f1, f2))
+                end
+            end
+        end
+    
+        # If same tail number and close arrival/departure, force same gate
+        for (f1, f2) in same_gate_pairs_conflict
+            g = get(existing_assig, f1, missing)
+            if f2 == 72 && g == 95
+                println("f1, f2, g, ", f1, f2, g)
+            end
+            @constraint(model, M[f2, g] == 1)
+        end
     
         # -------------------------------
         # Solve the Model
         # -------------------------------
         optimize!(model)
+
+        println("Termination status: ", termination_status(model))
+
+        # Check infeasibility
+        if termination_status(model) == MOI.INFEASIBLE_OR_UNBOUNDED
+            println("Model is infeasible; computing IIS...")
+
+            compute_conflict!(model)
+
+            # Print IIS constraints
+            println("The following constraints are in the IIS:")
+            for (i, c) in enumerate(all_constraints(model; include_variable_in_set_constraints=false))
+                iis_status = MOI.get(model, MOI.ConstraintConflictStatus(), c)
+                
+                if iis_status == MOI.IN_CONFLICT
+                    println("Constraint: ", iis_status)
+                    println("Constraint: ", c)
+                end
+            end
+
+            # Save IIS to a file for inspection
+            GRBwrite(gurobi_model, "model.ilp")
+        end
     
         # Extract results
         assignments = Dict(f => g for f in 1:F, g in 1:G if value(M[f, g]) ≈ 1)
@@ -162,8 +238,8 @@ function assign_gates(start_flight, end_flight, flights_per_save = 30, lookahead
     println("per save: ", flights_per_save)
 
     for i in start_flight:flights_per_save:end_flight
-        assignments_small = assign_gates_single(i, min(i+flights_per_block, end_flight), departing, arriving, connecting)
-        assignments_small = Dict((k + i - 1) => v for (k, v) in assignments_small)
+        assignments_small = assign_gates_single(i, min(i+flights_per_block, end_flight), departing, arriving, connecting, assignments_overall)
+        assignments_small = Dict((k + i - 1) => v for (k, v) in assignments_small if (k) <= (flights_per_save))
         println("assignments small, ", assignments_small)
         assignments_overall = merge(assignments_overall, assignments_small)
     end
@@ -214,4 +290,4 @@ function assign_gates(start_flight, end_flight, flights_per_save = 30, lookahead
     CSV.write("Optimized_Gate_Assignments_Sample_Day.csv", df)
 end
 
-assign_gates(5, 120,10, 30, true,true,true)
+assign_gates(1, 500,50, 50, true,false,false)
