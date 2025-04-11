@@ -54,7 +54,7 @@ function assign_gates(start_flight, end_flight, departing = true, arriving = tru
     df = df[sortperm(df.ArrivalTimeMinutes), :]
 
     # Function to determine window size based on number of connecting pairs
-    function find_window_size(start_idx, max_connecting_pairs = 8)
+    function find_window_size(start_idx, max_connecting_pairs = 15)
         window_size = 1
         best_size = 1  # Keep track of the size that gives us exactly max_connecting_pairs
         
@@ -200,7 +200,11 @@ function assign_gates(start_flight, end_flight, departing = true, arriving = tru
             end
 
             # Auxiliary variables for linearizing M[f1,g1] * M[f2,g2]
+            #OLD BELOW
             @variable(model, Z[connecting_pairs, 1:G, 1:G], Bin)
+
+            #NEW BELOW
+            # @variable(model, 0 <= Z[connecting_pairs, 1:G, 1:G])
         end
     
         @objective(model, Min,
