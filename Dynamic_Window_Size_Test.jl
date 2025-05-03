@@ -45,6 +45,8 @@ function assign_gates(start_flight, end_flight, departing = true, arriving = tru
     walking_distances_gate_to_gate = CSV.read("Data/Walking Distances Gate-to-Gate.csv", DataFrame)
     connections_matrix = CSV.read("Data/connections_matrix.csv", DataFrame)
     connections_tier_matrix = CSV.read("Data/connections_tier_matrix.csv", DataFrame) # (i,j) = tier of connection time between flight i and flight j
+    E_vals = CSV.read("Data/E_optimized.csv", DataFrame) 
+    S_vals = CSV.read("Data/S_optimized.csv", DataFrame)
     # ^ tier 1: 0-45 minute layover | tier 2: 45-90 minute layover | tier 3: >90 minute layover
 
     # Convert walking distances to matrix
@@ -460,7 +462,7 @@ function assign_gates(start_flight, end_flight, departing = true, arriving = tru
 
     # Save only the window (or the full day, as desired)
     df_window = df[start_flight:end_flight, :]
-    CSV.write("Optimized_Gate_Assignments_Sample_Day.csv", df_window)
+    CSV.write("Optimized_Gate_Assignments_ZVars.csv", df_window)
 end
 
 # Time the execution of assign_gates
@@ -469,7 +471,7 @@ start_time = time()
 
 ### Run the optimization
 
-assign_gates(1, 1200, false, false, true)
+assign_gates(1, 1200, true, true, true)
 
 ###
 

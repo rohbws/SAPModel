@@ -45,8 +45,8 @@ function assign_gates(start_flight, end_flight, departing = true, arriving = tru
     walking_distances_gate_to_gate = CSV.read("Data/Walking Distances Gate-to-Gate.csv", DataFrame)
     connections_matrix = CSV.read("Data/connections_matrix.csv", DataFrame)
     connections_tier_matrix = CSV.read("Data/connections_tier_matrix.csv", DataFrame) # (i,j) = tier of connection time between flight i and flight j
-    E_vals = CSV.read("Data/E_optimized_clust.csv", DataFrame, header=false) 
-    S_vals = CSV.read("Data/S_optimized_clust.csv", DataFrame, header=false)
+    E_vals = CSV.read("Data/E_optimized_clust9.csv", DataFrame, header=false) 
+    S_vals = CSV.read("Data/S_optimized_clust9.csv", DataFrame, header=false)
     # ^ tier 1: 0-45 minute layover | tier 2: 45-90 minute layover | tier 3: >90 minute layover
 
 
